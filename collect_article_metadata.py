@@ -3,123 +3,139 @@
 """
 #%%
 import datetime as dt
-import random
-from MediumAPI import mediumparser
 import pickle
+import random
 import time
+
 import pandas as pd
 import matplotlib.pyplot as plt
+
+from MediumAPI import mediumparser
 #%%
 HTML_PARSER = "html.parser"
 #%%
-def getPostsByTagsByDays(tag_list, day_list):
+def open_log_files(marker = "", data_dir = "./"):
+    post_list_ref = open(data_dir + 'PostTagList' + str(dt.date.today()) + marker +'.txt', 'a', encoding='utf-8')
+    post_tag_num_ref = open(data_dir + 'PostTagNumbers'+str(dt.date.today()) + marker +'.txt', 'a', encoding='utf-8')    
+    pub_list_ref = open(data_dir + 'PubTagList' + str(dt.date.today()) +  marker +'.txt', 'a', encoding='utf-8')
+    pub_tag_num_ref = open(data_dir + 'PubTagNumbers'+str(dt.date.today())+ marker +'.txt', 'a', encoding='utf-8')
+    return [post_list_ref, post_tag_num_ref, pub_list_ref, pub_tag_num_ref]
+
+def close_log_files(logfile_list):    
+    for file_ref in logfile_list:
+        file_ref.close()
+    return
+
+def get_metadata_by_tags(tag_list = ["machine-learning"], day = dt.date.today().strftime('%Y/%m/%d'), log_marker = "", data_dir ="./"):
     MediumObj = mediumparser.Medium()
-    allPosts = []
-    allPublications = []
-    counterpost = 0
-    counterpub = 0
-    post_list_ref = open('PostTagList' + str(dt.date.today()) + '.txt', 'w', encoding='utf-8')
-    post_tag_num_ref = open('PostTagNumbers'+str(dt.date.today())+'.txt', 'w', encoding='utf-8')    
-    pub_list_ref = open('PubTagList' + str(dt.date.today()) + '.txt', 'w', encoding='utf-8')
-    pub_tag_num_ref = open('PubTagNumbers'+str(dt.date.today())+'.txt', 'w', encoding='utf-8')    
-
-    for day in day_list:
-        for tag in tag_list:
-            try:
-                tag_day_url = MediumObj.build_tag_day_url(tag,day)
-                tag_payload = MediumObj._get_request_payload(tag_day_url)
-                tag_payload_filename = 'payload_' + tag + '_' + day.replace('/','-') + str(dt.date.today()) + '.p'
-                pickle.dump(tag_payload,open(tag_payload_filename, "wb" ))
-                postlist = mediumparser.parse_post_list(tag_payload)
-                publicationlist = mediumparser.parse_publication_list(tag_payload)
-                if(postlist is not None):
-                    allPosts.append(postlist)
-                    num_posts = len(postlist)
-                    counterpost += num_posts
-                    print("Found ",num_posts,". Total posts collected so far: ", counterpost)
-                    output = day + "," + tag + "," + str(num_posts) + "\n"
-                    post_tag_num_ref.write(output)
-                    for post in postlist:
-                        linepost = post.post_id + "," + post.post_url + "," + str(post.word_count) + "\n"
-                        post_list_ref.write(linepost)
-                else:
-                    continue
-            except Exception as e:
-                print("Problem assembling postlist ", counterpost, "Exception is: ", e)
-
-            try:
-                if(publicationlist is not None):
-                    allPublications.append(publicationlist)
-                    num_publications = len(publicationlist)
-                    counterpub += num_publications
-                    print("Found ", num_publications, ". Total publications collected so far: ", counterpub)
-                    output = day + "," + tag + "," + str(num_publications) + "\n"
-                    pub_tag_num_ref.write(output)
-                    for publication in publicationlist:
-                        linepub = publication.publication_id + "," + publication.pub_url + "," + str(publication.follower_count) + "\n"
-                        pub_list_ref.write(linepub)
-                else:
-                    continue
-
-                time.sleep(random.randint(10,30))
-            except Exception as e:
-                print("Problem assembling publicationlist ", counterpost, "Exception is: ", e)
+    day_post_list = []
+    day_publication_list = []       
+    post_list_ref, post_tag_num_ref, pub_list_ref, pub_tag_num_ref = open_log_files(log_marker, data_dir)
     
-    pickle.dump(allPosts,open("allPosts_"+str(dt.date.today())+"_"+str(num_posts)+".p", "wb" ))
-    pickle.dump(allPublications,open("AllPublications_"+str(dt.date.today())+"_"+str(num_publications)+".p", "wb" ))
-    post_tag_num_ref.close()
-    post_list_ref.close()
-    pub_tag_num_ref.close()
-    pub_list_ref.close()
+    for tag in tag_list:
+        tag_day_url = MediumObj.build_tag_day_url(tag,day)
+        
+        try:
+            tag_payload = MediumObj._get_request_payload(tag_day_url)
+        except Exception as e:
+            print("Problem getting payload from tag ", tag, " in ", day, ". Exception is: ", e)
+            continue
+        #logging payloads for future analysis          
+        tag_payload_filename = 'payload_' + tag + '_' + day.replace('/','-') + "_" + str(dt.date.today()) + '.p'
+        pickle.dump(tag_payload,open(data_dir + tag_payload_filename, "wb" ))
+        
+        try: 
+            post_list = mediumparser.parse_post_list(tag_payload)
+            publication_list = mediumparser.parse_publication_list(tag_payload)
+        except Exception as e:
+            print("Problem parsing payload from tag ", tag, " in ", day, ". Exception is: ", e)
+            continue
+        #When successful retrieval and parsing is achieved
+        post_tag_num_ref.write(day + "," + tag + "," + str(len(post_list)) + "\n")
+        for post in post_list:
+            linepost = post.post_id + "," + post.post_url + "," + str(post.word_count) + "\n"
+            post_list_ref.write(linepost)
 
-    return allPosts,allPublications
+        pub_tag_num_ref.write(day + "," + tag + "," + str(len(publication_list)) + "\n")
+        for publication in publication_list:
+            linepub = publication.publication_id + "," + publication.pub_url + "," + str(publication.follower_count) + "\n"
+            pub_list_ref.write(linepub)
+        
+        day_post_list.append(post_list)
+        day_publication_list.append(publication_list)
+        time.sleep(random.randint(10,30))  
 
-#%% Gathering daily metadata from Jan 01 2018 to 
+    close_log_files([post_list_ref, post_tag_num_ref, pub_list_ref, pub_tag_num_ref])          
+        
+    return day_post_list, day_publication_list
+    
+
+def get_metadata_by_days(day_list = [dt.date.today().strftime('%Y/%m/%d')], tag_list = ["machine-learning"], log_marker = "", data_dir ="./"):
+    all_post_list = []
+    all_publication_list = []
+    
+    post_count = 0
+    publication_count = 0
+    
+    for day in day_list:
+        day_post_list, day_publication_list = get_metadata_by_tags(tag_list, day, log_marker, data_dir)
+
+        for post_list in day_post_list:
+            if(post_list is not None):
+                all_post_list.append(post_list)
+                post_count += len(post_list)
+                print("Found ",len(post_list),". Total posts collected so far: ", post_count)
+
+        for publication_list in day_publication_list:
+            if(publication_list is not None):
+                all_publication_list.append(publication_list)
+                publication_count += len(publication_list)
+                print("Found ", len(publication_list), ". Total publications collected so far: ", publication_count)
+
+    pickle.dump(all_post_list,open(data_dir + "all_post_list_"+str(dt.date.today())+"_"+str(post_count)+".p", "wb" ))
+    pickle.dump(all_publication_list,open(data_dir + "all_publication_list_"+str(dt.date.today())+"_"+str(publication_count)+".p", "wb" ))
+
+    return all_post_list,all_publication_list
+
+#%% Gathering daily metadata for popular tags from Jan 01 2018 to 
 popular_tags = ['health','writing','design','politics','programming','business','machine-learning','artificial-intelligence','travel']
-startdate = dt.datetime(2018,1,1)
-#%%
+startdate = dt.datetime(2018,7,7)
+enddate = dt.datetime(2018,7,8)
 daylist = []
-for x in range(181):
+for x in range((enddate-startdate).days+1):
     xdate = startdate + dt.timedelta(days=x)
     daylist.append(xdate.strftime('%Y/%m/%d'))
    
 #%%
-PostList,PublicationList = getPostsByTagsByDays(popular_tags,daylist)
-#%%
-#%%% Creating a dictionary from the results
-PostTag_filename = 'PostTagNumbers2018-07-03.txt'
+log_marker = '_July'
+log_dir = './data_july/'
+july_posts,july_publications = get_metadata_by_days(daylist,popular_tags,log_marker,log_dir)
+
+#%%% Creating a DataFrame from the results
+scrape_date = str(dt.date.today())
+post_tag_file = open(log_dir + 'PostTagNumbers'+ scrape_date + log_marker +'.txt', 'r', encoding='utf-8')
+post_tag_df = pd.read_csv(post_tag_file,header=None,names=['date','tag','post_count'])
 postdf = pd.DataFrame()
 tagindex = 0
-post_tag_df = pd.read_csv(PostTag_filename,header=None,names=['date','tag','post_count'])
+all_post_list = july_posts
 archive_date = []
-for postdict in PostList:
+for post_list in all_post_list:
     tag = post_tag_df.iloc[tagindex]['tag']
-    for post in postdict:
+    for post in post_list:
+        #Selecting content only in English
         if post.detected_language != 'en':
             continue
+        #Eliminating thin content and too large content 
         if (post.word_count<200) or (post.word_count>5000):
             continue
         post.post_tags = tag
-        archive_date = post_tag_df.iloc[tagindex]['date']
+        archive_date.append(post_tag_df.iloc[tagindex]['date'])
         if postdf.empty:
             count = 0
             postdf = pd.DataFrame(mediumparser.to_dict(post),index=[count])
         else:
             postdf = pd.concat([postdf,pd.DataFrame(mediumparser.to_dict(post),index=[count])])
         count += 1
-    tagindex += 1 
-    print(tagindex)
-#%% Adding the scraping date
-#%% Eliminating thin content and too large content 
-archive_date = []
-tagindex = 0
-for postdict in PostList:
-    for post in postdict:
-        if post.detected_language != 'en':
-            continue
-        if (post.word_count<200) or (post.word_count>5000):
-            continue
-        archive_date.append(post_tag_df.iloc[tagindex]['date'])
     tagindex += 1 
     print(tagindex)
 
@@ -176,6 +192,5 @@ for tag in popular_tags:
     result = pd.merge(dupdf,tempdf,how='inner',left_index=True, right_index=True)
     tagdf[tag] = result.post_tags.value_counts()
 
-#%%Saving information 
-
 #%% Dropping duplicated records 
+
